@@ -1021,8 +1021,35 @@ def _convert_RGB_to_YBR_FULL(arr: "np.ndarray", bit_depth: int) -> "np.ndarray":
     """
     orig_dtype = arr.dtype
 
+    if (
+        type(arr) is np.ndarray
+        and orig_dtype == np.uint8
+        and bit_depth == 8
+        and arr.ndim >= 2
+        and arr.shape[-1] == 3
+        and arr.flags.c_contiguous
+        and arr.size > 3 * 65536
+    ):
+        # Keep the floating-point working set in cache for large RGB images.
+        pixels = arr.reshape(-1, 3)
+        result = np.empty(arr.shape, dtype=orig_dtype)
+        output = result.reshape(-1, 3)
+        offset = np.asarray([0.5, 128.5, 128.5], dtype=np.float32)
+        for start in range(0, len(pixels), 65536):
+            stop = start + 65536
+            block = np.matmul(pixels[start:stop], _RGB_TO_YBR_FULL, dtype=np.float32)
+            block += offset
+            np.clip(block, 0, 255, out=block)
+            # Casting the clipped, nonnegative values to uint8 also floors them.
+            output[start:stop] = block
+
+        return result
+
     arr = np.matmul(arr, _RGB_TO_YBR_FULL, dtype=np.float32)
-    arr += [0.5, 2 ** (bit_depth - 1) + 0.5, 2 ** (bit_depth - 1) + 0.5]
+    arr += np.asarray(
+        [0.5, 2 ** (bit_depth - 1) + 0.5, 2 ** (bit_depth - 1) + 0.5],
+        dtype=np.float32,
+    )
     # Round(x) -> floor of (arr + 0.5) : 0.5 added in previous step
     np.floor(arr, out=arr)
     # Max(0, arr) -> 0 if 0 >= arr, arr otherwise
