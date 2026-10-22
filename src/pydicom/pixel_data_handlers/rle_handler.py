@@ -366,28 +366,27 @@ def _rle_decode_segment(data: bytes) -> bytearray:
     bytearray
         The decoded segment.
     """
-    data = bytearray(data)
-    result = bytearray()
+    # Bytes and bytearrays already support the indexing and slicing below.
+    if not isinstance(data, (bytes, bytearray)):
+        data = bytearray(data)
+    packets = []
     pos = 0
-    result_extend = result.extend
 
     try:
         while True:
-            # header_byte is N + 1
-            header_byte = data[pos] + 1
+            header_byte = data[pos]
             pos += 1
-            if header_byte > 129:
-                # Extend by copying the next byte (-N + 1) times
-                # however since using uint8 instead of int8 this will be
-                # (256 - N + 1) times
-                result_extend(data[pos : pos + 1] * (258 - header_byte))
+            if header_byte < 128:
+                # Copy the next N + 1 bytes literally.
+                length = header_byte + 1
+                packets.append(data[pos : pos + length])
+                pos += length
+            elif header_byte > 128:
+                # Copy the next byte -N + 1 times (257 - N for uint8).
+                packets.append(data[pos : pos + 1] * (257 - header_byte))
                 pos += 1
-            elif header_byte < 129:
-                # Extend by literally copying the next (N + 1) bytes
-                result_extend(data[pos : pos + header_byte])
-                pos += header_byte
 
     except IndexError:
         pass
 
-    return result
+    return bytearray().join(packets)
